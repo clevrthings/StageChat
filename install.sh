@@ -61,9 +61,9 @@ coerce_port() {
 prompt_default() {
   local label="$1"
   local default="$2"
-  local reply
+  local reply=""
   prompt_read reply "${label} [${default}]: "
-  if [ -n "${reply}" ]; then
+  if [ -n "${reply:-}" ]; then
     printf '%s\n' "${reply}"
   else
     printf '%s\n' "${default}"
@@ -168,6 +168,10 @@ choose_service_user() {
   local candidate
   while true; do
     candidate="$(prompt_default "Linux user for StageChat service" "${DEFAULT_SERVICE_USER}")"
+    if [ -z "${candidate:-}" ]; then
+      log "Lege gebruikersnaam is niet geldig."
+      continue
+    fi
     if id -u "${candidate}" >/dev/null 2>&1; then
       printf '%s\n' "${candidate}"
       return
