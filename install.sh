@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+cd / || true
 
 # StageChat Raspberry Pi installer
 # Run with:
@@ -16,7 +17,7 @@ CLI_BIN="/usr/local/bin/stagechat"
 DEFAULT_SERVICE_USER="stagechat"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
-INSTALLER_VERSION="2026-02-22-3"
+INSTALLER_VERSION="2026-02-22-4"
 
 
 log() {
@@ -39,6 +40,7 @@ have_cmd() {
 }
 
 ensure_git_safe_directory() {
+  git config --system --add safe.directory "${INSTALL_DIR}" >/dev/null 2>&1 || true
   git config --global --add safe.directory "${INSTALL_DIR}" >/dev/null 2>&1 || true
 }
 
@@ -93,9 +95,9 @@ clone_repo() {
 update_repo() {
   log "Updating existing repository in ${INSTALL_DIR}"
   ensure_git_safe_directory
-  git -C "${INSTALL_DIR}" fetch origin "${BRANCH}"
-  git -C "${INSTALL_DIR}" checkout -B "${BRANCH}" "origin/${BRANCH}"
-  git -C "${INSTALL_DIR}" reset --hard "origin/${BRANCH}"
+  git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" fetch origin "${BRANCH}"
+  git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" checkout -B "${BRANCH}" "origin/${BRANCH}"
+  git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" reset --hard "origin/${BRANCH}"
 }
 
 choose_install_mode() {
@@ -401,8 +403,6 @@ enable_and_start_service() {
 }
 
 main() {
-  # Avoid getcwd warnings if caller directory was deleted/unmounted.
-  cd /
   require_root
   log "Installer version: ${INSTALLER_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
