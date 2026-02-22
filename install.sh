@@ -14,6 +14,7 @@ SERVICE_NAME="stagechat"
 SYSTEMD_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
 CLI_BIN="/usr/local/bin/stagechat"
 DEFAULT_SERVICE_USER="stagechat"
+INTERACTIVE_INPUT="/dev/tty"
 
 
 log() {
@@ -35,12 +36,24 @@ have_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+prompt_read() {
+  local var_name="$1"
+  local prompt="$2"
+  local reply=""
+  if [ -r "${INTERACTIVE_INPUT}" ]; then
+    read -r -p "${prompt}" reply < "${INTERACTIVE_INPUT}" || true
+  else
+    read -r -p "${prompt}" reply || true
+  fi
+  printf -v "${var_name}" '%s' "${reply}"
+}
+
 coerce_port() {
   local value="$1"
   if [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -ge 1 ] && [ "$value" -le 65535 ]; then
     printf '%s\n' "$value"
   else
-    printf '5001\n'
+    printf '80\n'
   fi
 }
 
@@ -48,7 +61,7 @@ prompt_default() {
   local label="$1"
   local default="$2"
   local reply
-  read -r -p "${label} [${default}]: " reply || true
+  prompt_read reply "${label} [${default}]: "
   if [ -n "${reply}" ]; then
     printf '%s\n' "${reply}"
   else
@@ -89,14 +102,14 @@ Choose install mode:
   2) Clean reinstall (delete installation folder)
   3) Cancel
 EOF
-      read -r -p "Select [1/2/3]: " mode || true
+      prompt_read mode "Select [1/2/3]: "
       case "${mode:-}" in
         1)
           update_repo
           return
           ;;
         2)
-          read -r -p "This removes ${INSTALL_DIR}. Continue? [y/N]: " confirm || true
+          prompt_read confirm "This removes ${INSTALL_DIR}. Continue? [y/N]: "
           case "${confirm:-n}" in
             y|Y|yes|YES)
               rm -rf "${INSTALL_DIR}"
@@ -118,7 +131,7 @@ EOF
 
   if [ -d "${INSTALL_DIR}" ] && [ ! -d "${INSTALL_DIR}/.git" ]; then
     log "Directory ${INSTALL_DIR} exists but is not a git checkout."
-    read -r -p "Delete and reinstall into ${INSTALL_DIR}? [y/N]: " confirm || true
+    prompt_read confirm "Delete and reinstall into ${INSTALL_DIR}? [y/N]: "
     case "${confirm:-n}" in
       y|Y|yes|YES)
         rm -rf "${INSTALL_DIR}"
@@ -154,7 +167,7 @@ choose_service_user() {
       printf '%s\n' "${candidate}"
       return
     fi
-    read -r -p "User '${candidate}' does not exist. Create system user? [Y/n]: " create_ans || true
+    prompt_read create_ans "User '${candidate}' does not exist. Create system user? [Y/n]: "
     case "${create_ans:-Y}" in
       n|N|no|NO)
         ;;
@@ -176,7 +189,7 @@ import sys
 path = sys.argv[1]
 defaults = {
     "active_project": "default",
-    "port": 5001,
+    "port": 80,
     "username_case_sensitive": False,
 }
 
@@ -214,9 +227,9 @@ path, active, port_raw, case_raw = sys.argv[1:5]
 try:
     port = int(port_raw)
 except Exception:
-    port = 5001
+    port = 80
 if not (1 <= port <= 65535):
-    port = 5001
+    port = 80
 case_sensitive = str(case_raw).lower() == "true"
 
 payload = {
@@ -243,7 +256,7 @@ configure_main_config() {
 
   mapfile -t cfg < <(read_existing_config_defaults "${defaults_file}")
   default_project="${cfg[0]:-default}"
-  default_port="${cfg[1]:-5001}"
+  default_port="${cfg[1]:-80}"
   default_case="${cfg[2]:-false}"
 
   while true; do
@@ -260,7 +273,7 @@ configure_main_config() {
   else
     case_prompt="y/N"
   fi
-  read -r -p "Username case-sensitive mode? [${case_prompt}]: " case_input || true
+  prompt_read case_input "Username case-sensitive mode? [${case_prompt}]: "
   case "${case_input:-}" in
     y|Y|yes|YES)
       case_value="true"
@@ -298,6 +311,8 @@ Group=${service_user}
 WorkingDirectory=${INSTALL_DIR}
 Environment=PYTHONUNBUFFERED=1
 ExecStart=${INSTALL_DIR}/.venv/bin/python ${INSTALL_DIR}/app.py
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=always
 RestartSec=2
 
@@ -371,6 +386,9 @@ enable_and_start_service() {
 main() {
   require_root
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
+  if [ ! -r "${INTERACTIVE_INPUT}" ]; then
+    log "Geen interactieve terminal gedetecteerd; standaardwaarden worden gebruikt."
+  fi
   ensure_packages
 
   local backup_config=""
@@ -380,7 +398,7 @@ main() {
   if [ -f "${INSTALL_DIR}/config.json" ]; then
     cp "${INSTALL_DIR}/config.json" "${backup_config}"
   else
-    write_config_file "${backup_config}" "default" "5001" "false"
+    write_config_file "${backup_config}" "default" "80" "false"
   fi
 
   choose_install_mode
@@ -403,7 +421,7 @@ main() {
   configured_port="$(python3 - <<PY
 import json
 cfg = json.load(open("${INSTALL_DIR}/config.json", "r", encoding="utf-8"))
-print(int(cfg.get("port", 5001)))
+print(int(cfg.get("port", 80)))
 PY
 )"
   local host_ip
@@ -411,13 +429,25 @@ PY
   if [ -z "${host_ip}" ]; then
     host_ip="localhost"
   fi
+  local http_url
+  local https_url
+  if [ "${configured_port}" -eq 80 ]; then
+    http_url="http://${host_ip}"
+    https_url="https://${host_ip}:80"
+  elif [ "${configured_port}" -eq 443 ]; then
+    http_url="http://${host_ip}:443"
+    https_url="https://${host_ip}"
+  else
+    http_url="http://${host_ip}:${configured_port}"
+    https_url="https://${host_ip}:${configured_port}"
+  fi
 
   log "Installation complete."
   log "Service: ${SERVICE_NAME}.service (running + enabled)"
   log "CLI commands: stagechat start | stagechat stop | stagechat restart"
   log "Open in browser:"
-  log "  http://${host_ip}:${configured_port}  (auto-redirect to HTTPS)"
-  log "  https://${host_ip}:${configured_port}"
+  log "  ${http_url}  (auto-redirect to HTTPS)"
+  log "  ${https_url}"
 }
 
 main "$@"

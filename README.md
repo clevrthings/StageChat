@@ -20,6 +20,11 @@ The installer will:
   - `stagechat restart`
   - `stagechat` (help)
 
+Default install values:
+
+- `port`: `80` (so `http://<hostname>` works directly and redirects to HTTPS)
+- `username_case_sensitive`: `false`
+
 ## Manual run (development)
 
 ```bash

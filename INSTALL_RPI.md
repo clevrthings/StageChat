@@ -14,6 +14,11 @@ What it does:
 - creates and enables a `systemd` service so StageChat restarts automatically
 - installs the `stagechat` command in `/usr/local/bin`
 
+Defaults:
+
+- `port`: `80`
+- `username_case_sensitive`: `false`
+
 Service commands:
 
 ```bash

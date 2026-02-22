@@ -153,7 +153,7 @@ def migrate_project_settings():
         print(f'[migrate] settings.json aangemaakt voor project "{proj}"')
 
 
-def _coerce_port(value, default: int = 5001) -> int:
+def _coerce_port(value, default: int = 80) -> int:
     try:
         port = int(value)
     except Exception:
@@ -165,7 +165,7 @@ def load_config():
     global APP_CONFIG, ACTIVE_PROJECT
     defaults = {
         'active_project':        'default',
-        'port':                  5001,
+        'port':                  80,
         'username_case_sensitive': False,
         'language':              'nl',
         'timezone':              '',
@@ -184,7 +184,7 @@ def load_config():
             APP_CONFIG = defaults
     else:
         APP_CONFIG = defaults
-    APP_CONFIG['port'] = _coerce_port(APP_CONFIG.get('port', 5001))
+    APP_CONFIG['port'] = _coerce_port(APP_CONFIG.get('port', 80))
     APP_CONFIG['username_case_sensitive'] = bool(APP_CONFIG.get('username_case_sensitive', False))
     ACTIVE_PROJECT = APP_CONFIG.get('active_project', 'default')
 
@@ -193,7 +193,7 @@ def save_config():
     try:
         payload = {
             'active_project': APP_CONFIG.get('active_project', 'default'),
-            'port': _coerce_port(APP_CONFIG.get('port', 5001)),
+            'port': _coerce_port(APP_CONFIG.get('port', 80)),
             'username_case_sensitive': bool(APP_CONFIG.get('username_case_sensitive', False)),
         }
         with open(CONFIG_FILE, 'w') as f:
@@ -258,17 +258,47 @@ def _get_local_ips() -> list:
         for info in socket_lib.getaddrinfo(socket_lib.gethostname(), None, socket_lib.AF_INET):
             ips.add(info[4][0])
     except Exception: pass
-    return list(ips)
+    return sorted(ips)
+
+
+def _get_local_hostnames() -> list:
+    hostnames = {'localhost'}
+    for raw in (socket_lib.gethostname(), socket_lib.getfqdn()):
+        name = str(raw or '').strip().lower()
+        if not name:
+            continue
+        if not re.fullmatch(r'[a-z0-9.-]+', name):
+            continue
+        hostnames.add(name)
+        if '.' not in name and name != 'localhost':
+            hostnames.add(f'{name}.local')
+    return sorted(hostnames)
+
+
+def _cert_has_required_san(cert_path: str, required_dns: list, required_ips: list) -> bool:
+    try:
+        with open(cert_path, 'rb') as f:
+            cert = x509.load_pem_x509_certificate(f.read())
+        san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except Exception:
+        return False
+    cert_dns = {str(name).lower() for name in san_ext.get_values_for_type(x509.DNSName)}
+    cert_ips = {str(addr) for addr in san_ext.get_values_for_type(x509.IPAddress)}
+    return set(required_dns).issubset(cert_dns) and set(required_ips).issubset(cert_ips)
 
 
 def generate_ssl_cert():
+    local_ips = _get_local_ips()
+    local_dns = _get_local_hostnames()
     if os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
-        return
+        if _cert_has_required_san(CERT_FILE, local_dns, local_ips):
+            return
+        print('[ssl] Bestaand certificaat mist vereiste hostnames/IPs, opnieuw aanmaken…')
     print('[ssl] Zelfondertekend certificaat aanmaken…')
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    local_ips = _get_local_ips()
-    san = [x509.DNSName('localhost')] + [x509.IPAddress(ipaddress.IPv4Address(ip)) for ip in local_ips]
-    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'stagechat')])
+    san = [x509.DNSName(host) for host in local_dns] + [x509.IPAddress(ipaddress.ip_address(ip)) for ip in local_ips]
+    common_name = next((host for host in local_dns if host != 'localhost'), 'stagechat')
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject).issuer_name(issuer).public_key(key.public_key())
@@ -281,7 +311,7 @@ def generate_ssl_cert():
     with open(CERT_FILE, 'wb') as f: f.write(cert.public_bytes(serialization.Encoding.PEM))
     with open(KEY_FILE, 'wb') as f:
         f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
-    print(f'[ssl] Certificaat opgeslagen — {", ".join(local_ips)}')
+    print(f'[ssl] Certificaat opgeslagen — DNS: {", ".join(local_dns)} | IP: {", ".join(local_ips)}')
 
 
 # ── Persistence ──
@@ -1131,7 +1161,7 @@ def on_call_ice(data): emit('call_ice', {'from': request.sid, 'candidate': data.
 
 if __name__ == '__main__':
     generate_ssl_cert()
-    PUBLIC_PORT = _coerce_port(APP_CONFIG.get('port', 5001))
+    PUBLIC_PORT = _coerce_port(APP_CONFIG.get('port', 80))
     HTTPS_BACKEND_PORT = PUBLIC_PORT + 1 if PUBLIC_PORT < 65535 else 65534
     if HTTPS_BACKEND_PORT == PUBLIC_PORT:
         HTTPS_BACKEND_PORT = 5443
