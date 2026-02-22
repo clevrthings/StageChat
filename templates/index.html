@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StageChat</title>
+<title>StageChat v{{ app_version }}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="/static/js/socket.io-4.7.5.min.js"></script>
@@ -301,6 +301,9 @@
   .sidebar-logo {
     padding: 18px 18px 6px; font-size: 1.2rem; font-weight: 600;
     color: var(--accent); letter-spacing: .3px;
+  }
+  .sidebar-logo .version {
+    display: block; font-size: .68rem; color: var(--text-system); font-weight: 500; margin-top: 2px;
   }
   #project-badge {
     padding: 0 18px 12px; font-size: .72rem; color: var(--text-system);
@@ -775,7 +778,7 @@
 <!-- Auth overlay -->
 <div id="overlay">
   <div class="overlay-card">
-    <div class="logo">⚡ StageChat</div>
+    <div class="logo">⚡ StageChat v{{ app_version }}</div>
     <div class="auth-tabs">
       <button class="tab-btn active" id="tab-login"    onclick="showTab('login')">Inloggen</button>
       <button class="tab-btn"        id="tab-register" onclick="showTab('register')">Registreren</button>
@@ -793,7 +796,7 @@
 
 <!-- Sidebar -->
 <nav id="sidebar">
-  <div class="sidebar-logo">⚡ StageChat</div>
+  <div class="sidebar-logo">⚡ StageChat <span class="version">v{{ app_version }}</span></div>
   <div id="project-badge"><span class="proj-name">laden…</span></div>
 
   <div class="sidebar-section">
@@ -878,6 +881,7 @@
 </div>
 
 <script>
+  const APP_VERSION = {{ app_version | tojson }};
   const STORAGE_KEY_TOKEN    = 'stagechat_token';
   const STORAGE_KEY_USER     = 'stagechat_user';
   const STORAGE_KEY_THEME    = 'stagechat_theme';
@@ -1027,8 +1031,10 @@
       admin_close: '✕ Sluiten',
       general_title: 'Algemeen',
       general_server: 'Server',
+      general_hostname: 'Hostname',
       general_uptime: 'Uptime',
       general_project: 'Project',
+      general_version: 'Versie',
       general_language: 'Taal',
       general_timezone: 'Tijdzone',
       general_max_mb: 'Max bestandsgrootte (MB)',
@@ -1043,7 +1049,7 @@
       projects_copy: 'Kopieer',
       projects_delete: 'Verwijder',
       projects_new: 'Nieuw project',
-      projects_new_ph: 'naam (a-z, 0-9, _, -)',
+      projects_new_ph: 'naam (spaties worden -)',
       projects_create: 'Aanmaken',
       users_title: 'Gebruikers',
       users_none: 'Geen gebruikers.',
@@ -1169,8 +1175,10 @@
       admin_close: '✕ Close',
       general_title: 'General',
       general_server: 'Server',
+      general_hostname: 'Hostname',
       general_uptime: 'Uptime',
       general_project: 'Project',
+      general_version: 'Version',
       general_language: 'Language',
       general_timezone: 'Timezone',
       general_max_mb: 'Max file size (MB)',
@@ -1185,7 +1193,7 @@
       projects_copy: 'Copy',
       projects_delete: 'Delete',
       projects_new: 'New project',
-      projects_new_ph: 'name (a-z, 0-9, _, -)',
+      projects_new_ph: 'name (spaces become -)',
       projects_create: 'Create',
       users_title: 'Users',
       users_none: 'No users.',
@@ -1311,8 +1319,10 @@
       admin_close: '✕ Schließen',
       general_title: 'Allgemein',
       general_server: 'Server',
+      general_hostname: 'Hostname',
       general_uptime: 'Laufzeit',
       general_project: 'Projekt',
+      general_version: 'Version',
       general_language: 'Sprache',
       general_timezone: 'Zeitzone',
       general_max_mb: 'Max Dateigröße (MB)',
@@ -1327,7 +1337,7 @@
       projects_copy: 'Kopieren',
       projects_delete: 'Löschen',
       projects_new: 'Neues Projekt',
-      projects_new_ph: 'name (a-z, 0-9, _, -)',
+      projects_new_ph: 'name (Leerzeichen werden -)',
       projects_create: 'Erstellen',
       users_title: 'Benutzer',
       users_none: 'Keine Benutzer.',
@@ -1453,8 +1463,10 @@
       admin_close: '✕ Fermer',
       general_title: 'Général',
       general_server: 'Serveur',
+      general_hostname: 'Nom d’hôte',
       general_uptime: 'Temps actif',
       general_project: 'Projet',
+      general_version: 'Version',
       general_language: 'Langue',
       general_timezone: 'Fuseau horaire',
       general_max_mb: 'Taille max du fichier (MB)',
@@ -1469,7 +1481,7 @@
       projects_copy: 'Copier',
       projects_delete: 'Supprimer',
       projects_new: 'Nouveau projet',
-      projects_new_ph: 'nom (a-z, 0-9, _, -)',
+      projects_new_ph: 'nom (les espaces deviennent -)',
       projects_create: 'Créer',
       users_title: 'Utilisateurs',
       users_none: 'Aucun utilisateur.',
@@ -1532,10 +1544,26 @@
     return out;
   }
 
+  function displayProjectName(name) {
+    return String(name || '').replace(/-/g, ' ').trim();
+  }
+
+  function normalizeProjectSlug(name) {
+    return String(name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9_-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^[-_]+|[-_]+$/g, '');
+  }
+
   function baseTitle() {
+    const appName = `StageChat v${APP_VERSION}`;
+    const projectLabel = displayProjectName(currentProject);
     return currentProject && currentProject !== 'default'
-      ? 'StageChat \u2014 ' + currentProject
-      : 'StageChat';
+      ? `${appName} \u2014 ${projectLabel}`
+      : appName;
   }
   function unreadTotal() {
     return Object.values(unread).reduce((sum, n) => sum + (parseInt(n, 10) || 0), 0);
@@ -1629,7 +1657,7 @@
     if (confirmOk) confirmOk.textContent = t('confirm_ok');
     if (confirmMsg && !confirmCallback) confirmMsg.textContent = t('confirm_default');
     if (menuBtn) menuBtn.setAttribute('aria-label', t('menu_aria'));
-    if (projectBadgeName && (!currentProject || projectBadgeName.textContent === 'laden…')) {
+    if (projectBadgeName && !currentProject) {
       projectBadgeName.textContent = t('project_loading');
     }
     updateInputPlaceholder();
@@ -1679,7 +1707,7 @@
   function updateProjectDisplay(name) {
     currentProject = name || '';
     const badge = document.getElementById('project-badge');
-    if (badge) badge.querySelector('.proj-name').textContent = currentProject || 'default';
+    if (badge) badge.querySelector('.proj-name').textContent = displayProjectName(currentProject || 'default');
     updateDocumentTitle();
   }
 
@@ -1880,7 +1908,6 @@
   function switchChannel(ch) {
     closeSidebar();
     if (ch === currentChannel) return;
-    if (inCall) leaveCall();
     currentChannel = ch;
     headerChannel.textContent = ch;
     updateChannelTopic(ch);
@@ -2491,6 +2518,9 @@
 
   function renderGeneralTab(c) {
     const cfg = adminData.config || {};
+    const hostnames = (adminData.server_hostnames || []).filter(Boolean).join(', ') || (adminData.server_hostname || '');
+    const activeProjectLabel = displayProjectName(adminData.active_project || 'default');
+    const appVersionLabel = adminData.app_version || APP_VERSION;
     const tzList = [
       ['', 'Systeemtijd (standaard)'], ['UTC', 'UTC'],
       ['Europe/Amsterdam', 'Amsterdam'], ['Europe/London', 'Londen'],
@@ -2512,8 +2542,10 @@
       <h2>${escapeHtml(t('general_title'))}</h2>
       <div class="admin-info">
         ${escapeHtml(t('general_server'))}: <span>${escapeHtml(adminData.server_ip||'')}</span> &nbsp;
+        ${escapeHtml(t('general_hostname'))}: <span>${escapeHtml(hostnames)}</span> &nbsp;
         ${escapeHtml(t('general_uptime'))}: <span>${escapeHtml(formatUptime(adminData.uptime||0))}</span> &nbsp;
-        ${escapeHtml(t('general_project'))}: <span>${escapeHtml(adminData.active_project||'default')}</span>
+        ${escapeHtml(t('general_project'))}: <span>${escapeHtml(activeProjectLabel)}</span> &nbsp;
+        ${escapeHtml(t('general_version'))}: <span>${escapeHtml(appVersionLabel)}</span>
       </div>
       <div class="admin-row">
         <span class="admin-label">${escapeHtml(t('general_language'))}</span>
@@ -2569,8 +2601,9 @@
     let html = `<h2>${escapeHtml(t('projects_title'))}</h2>`;
     (adminData.projects||[]).forEach(p => {
       const s = sMap[p]||{}, isAct = p===active;
+      const label = displayProjectName(p);
       html += `<div class="project-item${isAct?' active-project':''}">
-        <span class="project-name">${escapeHtml(p)}</span>
+        <span class="project-name">${escapeHtml(label)}</span>
         ${isAct?`<span class="project-badge">${escapeHtml(t('projects_active'))}</span>`:''}
         <span class="project-size">${escapeHtml(formatBytes(s.total_size||0))}</span>
         <div class="project-actions">
@@ -2589,18 +2622,23 @@
   }
 
   function switchProjectAdmin(name) {
-    confirmAction(t('switch_project_confirm', { name }), () => socket.emit('switch_project', { token: authToken, name }));
+    const label = displayProjectName(name);
+    confirmAction(t('switch_project_confirm', { name: label }), () => socket.emit('switch_project', { token: authToken, name }));
   }
   function createProjectAdmin() {
     const name = (document.getElementById('new-proj')||{}).value;
-    if (name) socket.emit('create_project', { token: authToken, name: name.trim().toLowerCase() });
+    const slug = normalizeProjectSlug(name);
+    if (slug) socket.emit('create_project', { token: authToken, name: slug });
   }
   function duplicateProjectAdmin(src) {
-    const dest = prompt(t('copy_project_prompt', { name: src }));
-    if (dest) socket.emit('duplicate_project', { token: authToken, source: src, dest: dest.trim().toLowerCase() });
+    const sourceLabel = displayProjectName(src);
+    const dest = prompt(t('copy_project_prompt', { name: sourceLabel }));
+    const destSlug = normalizeProjectSlug(dest);
+    if (destSlug) socket.emit('duplicate_project', { token: authToken, source: src, dest: destSlug });
   }
   function deleteProjectAdmin(name) {
-    confirmAction(t('delete_project_confirm', { name }), () => socket.emit('delete_project', { token: authToken, name }));
+    const label = displayProjectName(name);
+    confirmAction(t('delete_project_confirm', { name: label }), () => socket.emit('delete_project', { token: authToken, name }));
   }
 
   function renderUsersTab(c) {
@@ -2637,20 +2675,21 @@
 
   function renderDangerTab(c) {
     const proj = adminData.active_project || 'default';
+    const projLabel = displayProjectName(proj);
     c.innerHTML = `
       <h2>${escapeHtml(t('danger_title'))}</h2>
-      <p class="admin-info">${escapeHtml(t('danger_current_project'))}: <span>${escapeHtml(proj)}</span></p>
+      <p class="admin-info">${escapeHtml(t('danger_current_project'))}: <span>${escapeHtml(projLabel)}</span></p>
       <div class="danger-item">
         <div class="danger-item-text"><h3>${escapeHtml(t('danger_clear_chat_title'))}</h3><p>${escapeHtml(t('danger_clear_chat_text'))}</p></div>
-        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_chat_confirm',{name:'${escapeHtml(proj)}'}),()=>socket.emit('clear_project_history',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_chat_btn'))}</button>
+        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_chat_confirm',{name:'${escapeHtml(projLabel)}'}),()=>socket.emit('clear_project_history',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_chat_btn'))}</button>
       </div>
       <div class="danger-item">
         <div class="danger-item-text"><h3>${escapeHtml(t('danger_clear_uploads_title'))}</h3><p>${escapeHtml(t('danger_clear_uploads_text'))}</p></div>
-        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_uploads_confirm',{name:'${escapeHtml(proj)}'}),()=>socket.emit('clear_project_uploads',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_uploads_btn'))}</button>
+        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_uploads_confirm',{name:'${escapeHtml(projLabel)}'}),()=>socket.emit('clear_project_uploads',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_uploads_btn'))}</button>
       </div>
       <div class="danger-item">
         <div class="danger-item-text"><h3>${escapeHtml(t('danger_clear_all_title'))}</h3><p>${escapeHtml(t('danger_clear_all_text'))}</p></div>
-        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_all_confirm',{name:'${escapeHtml(proj)}'}),()=>socket.emit('clear_project_all',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_all_btn'))}</button>
+        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_all_confirm',{name:'${escapeHtml(projLabel)}'}),()=>socket.emit('clear_project_all',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_all_btn'))}</button>
       </div>
       <div class="danger-item" style="margin-top:8px;">
         <div class="danger-item-text"><h3>${escapeHtml(t('danger_reset_title'))}</h3><p>${escapeHtml(t('danger_reset_text'))}</p></div>

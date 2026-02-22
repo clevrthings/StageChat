@@ -446,25 +446,64 @@ PY
   if [ -z "${host_ip}" ]; then
     host_ip="localhost"
   fi
+  local host_name
+  host_name="$(hostname 2>/dev/null | tr -d '[:space:]')"
+  if [ -z "${host_name}" ]; then
+    host_name="localhost"
+  fi
+  local host_local=""
+  if [ "${host_name}" != "localhost" ] && [[ "${host_name}" != *.* ]]; then
+    host_local="${host_name}.local"
+  fi
   local http_url
   local https_url
+  local http_host_url
+  local https_host_url
+  local http_host_local_url=""
+  local https_host_local_url=""
   if [ "${configured_port}" -eq 80 ]; then
     http_url="http://${host_ip}"
-    https_url="https://${host_ip}:80"
+    https_url="https://${host_ip}"
+    http_host_url="http://${host_name}"
+    https_host_url="https://${host_name}"
+    if [ -n "${host_local}" ]; then
+      http_host_local_url="http://${host_local}"
+      https_host_local_url="https://${host_local}"
+    fi
   elif [ "${configured_port}" -eq 443 ]; then
     http_url="http://${host_ip}:443"
     https_url="https://${host_ip}"
+    http_host_url="http://${host_name}:443"
+    https_host_url="https://${host_name}"
+    if [ -n "${host_local}" ]; then
+      http_host_local_url="http://${host_local}:443"
+      https_host_local_url="https://${host_local}"
+    fi
   else
     http_url="http://${host_ip}:${configured_port}"
     https_url="https://${host_ip}:${configured_port}"
+    http_host_url="http://${host_name}:${configured_port}"
+    https_host_url="https://${host_name}:${configured_port}"
+    if [ -n "${host_local}" ]; then
+      http_host_local_url="http://${host_local}:${configured_port}"
+      https_host_local_url="https://${host_local}:${configured_port}"
+    fi
   fi
 
   log "Installation complete."
   log "Service: ${SERVICE_NAME}.service (running + enabled)"
   log "CLI commands: stagechat start | stagechat stop | stagechat restart"
-  log "Open in browser:"
+  log "Reachable via IP:"
   log "  ${http_url}  (auto-redirect to HTTPS)"
   log "  ${https_url}"
+  log "Reachable via hostname:"
+  log "  ${http_host_url}  (auto-redirect to HTTPS)"
+  log "  ${https_host_url}"
+  if [ -n "${http_host_local_url}" ] && [ "${host_local}" != "${host_name}" ]; then
+    log "Reachable via mDNS hostname:"
+    log "  ${http_host_local_url}  (auto-redirect to HTTPS)"
+    log "  ${https_host_local_url}"
+  fi
 }
 
 main "$@"

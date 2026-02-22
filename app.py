@@ -35,6 +35,7 @@ CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')
 KEY_FILE      = os.path.join(BASE_DIR, 'key.pem')
 MAX_HISTORY   = 200
+APP_VERSION   = '0.1.0-beta'
 
 DEFAULT_CHANNELS = ['algemeen', 'foh', 'podium', 'licht']
 
@@ -425,9 +426,49 @@ def _get_server_ip() -> str:
     except Exception: return '127.0.0.1'
 
 
+def _get_server_hostname() -> str:
+    try:
+        host = socket_lib.gethostname().strip().lower()
+    except Exception:
+        host = ''
+    return host or 'localhost'
+
+
+def _get_server_hostnames() -> list:
+    host = _get_server_hostname()
+    names = [host]
+    if '.' not in host and host != 'localhost':
+        names.append(f'{host}.local')
+    return names
+
+
 def _project_names() -> list:
     if not os.path.exists(PROJECTS_DIR): return ['default']
     return sorted([d for d in os.listdir(PROJECTS_DIR) if os.path.isdir(os.path.join(PROJECTS_DIR, d))])
+
+
+def _normalize_project_name(name: str) -> str:
+    normalized = str(name or '').strip().lower()
+    normalized = re.sub(r'\s+', '-', normalized)
+    normalized = re.sub(r'[^a-z0-9_\-]', '-', normalized)
+    normalized = re.sub(r'-{2,}', '-', normalized)
+    return normalized.strip('-_')
+
+
+def _resolve_project_name(name: str) -> str:
+    candidate = str(name or '').strip()
+    if not candidate:
+        return ''
+    projects = _project_names()
+    if candidate in projects:
+        return candidate
+    normalized = _normalize_project_name(candidate)
+    if normalized in projects:
+        return normalized
+    for proj in projects:
+        if _normalize_project_name(proj) == normalized:
+            return proj
+    return ''
 
 
 def _dir_size(path: str) -> int:
@@ -485,7 +526,8 @@ def _redirect_response_for_request(raw_request: bytes, https_port: int) -> bytes
             host = line.split(':', 1)[1].strip()
             break
     host_only = _strip_host_port(host)
-    location = f'https://{host_only}:{https_port}{path}'
+    port_suffix = '' if https_port in (80, 443) else f':{https_port}'
+    location = f'https://{host_only}{port_suffix}{path}'
     payload = (
         'HTTP/1.1 308 Permanent Redirect\r\n'
         f'Location: {location}\r\n'
@@ -574,7 +616,7 @@ def _resolve_username_key(name: str):
 
 @app.route('/')
 def index():
-    return render_template('index.html', channels=CHANNELS)
+    return render_template('index.html', channels=CHANNELS, app_version=APP_VERSION)
 
 
 @app.route('/upload', methods=['POST'])
@@ -694,7 +736,6 @@ def on_switch_channel(data):
     if new_channel not in CHANNELS: return
     user = connected_users[sid]; old_channel = user['channel']; name = user['name']
     if old_channel == new_channel: return
-    _remove_from_call(sid)
     leave_room(old_channel)
     emit('new_message', _add_message(old_channel, 'systeem', f'{name} heeft #{old_channel} verlaten', 'system'), to=old_channel)
     connected_users[sid]['channel'] = new_channel
@@ -934,6 +975,8 @@ def on_get_admin_data(data):
                   for u, d in USERS.items()],
         'channels': CHANNELS, 'topics': CHANNEL_TOPICS,
         'uptime': int(time.time() - START_TIME), 'server_ip': _get_server_ip(),
+        'server_hostname': _get_server_hostname(), 'server_hostnames': _get_server_hostnames(),
+        'app_version': APP_VERSION,
         'config': PROJECT_CONFIG, 'storage': _build_storage_list()
     })
 
@@ -964,9 +1007,9 @@ def on_create_project(data):
     if request.sid not in connected_users: return
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
-    name = (data.get('name') or '').strip().lower()
+    name = _normalize_project_name(data.get('name', ''))
     if not re.match(r'^[a-z0-9_\-]{2,40}$', name):
-        emit('error', {'message': 'Ongeldige projectnaam (a-z, 0-9, _, -)'}); return
+        emit('error', {'message': 'Ongeldige projectnaam (2-40 tekens, a-z, 0-9, _, -, spaties worden -)'}); return
     pdir = os.path.join(PROJECTS_DIR, name)
     if os.path.exists(pdir): emit('error', {'message': 'Project bestaat al'}); return
     os.makedirs(os.path.join(pdir, 'uploads'), exist_ok=True)
@@ -983,9 +1026,11 @@ def on_duplicate_project(data):
     if request.sid not in connected_users: return
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
-    source = data.get('source', ''); dest = (data.get('dest') or '').strip().lower()
+    source = _resolve_project_name(data.get('source', ''))
+    dest = _normalize_project_name(data.get('dest', ''))
     if not re.match(r'^[a-z0-9_\-]{2,40}$', dest):
         emit('error', {'message': 'Ongeldige projectnaam'}); return
+    if not source: emit('error', {'message': 'Bronproject niet gevonden'}); return
     src_path = os.path.join(PROJECTS_DIR, source); dest_path = os.path.join(PROJECTS_DIR, dest)
     if not os.path.exists(src_path): emit('error', {'message': 'Bronproject niet gevonden'}); return
     if os.path.exists(dest_path): emit('error', {'message': 'Doelproject bestaat al'}); return
@@ -1002,7 +1047,8 @@ def on_delete_project(data):
     if request.sid not in connected_users: return
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
-    name = data.get('name', '')
+    name = _resolve_project_name(data.get('name', ''))
+    if not name: emit('error', {'message': 'Project niet gevonden'}); return
     if name == ACTIVE_PROJECT: emit('error', {'message': 'Actief project kan niet worden verwijderd'}); return
     if name == 'default': emit('error', {'message': 'Standaardproject kan niet worden verwijderd'}); return
     pdir = os.path.join(PROJECTS_DIR, name)
@@ -1017,7 +1063,8 @@ def on_switch_project(data):
     if request.sid not in connected_users: return
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
-    name = data.get('name', '')
+    name = _resolve_project_name(data.get('name', ''))
+    if not name: emit('error', {'message': 'Project niet gevonden'}); return
     if name == ACTIVE_PROJECT: return
     if not os.path.exists(os.path.join(PROJECTS_DIR, name)):
         emit('error', {'message': 'Project niet gevonden'}); return
@@ -1042,7 +1089,7 @@ def on_clear_project_history(data):
     if request.sid not in connected_users: return
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
-    name = data.get('project', ACTIVE_PROJECT)
+    name = _resolve_project_name(data.get('project', ACTIVE_PROJECT)) or ACTIVE_PROJECT
     pdir = os.path.join(PROJECTS_DIR, name)
     if not os.path.exists(pdir): emit('error', {'message': 'Project niet gevonden'}); return
     data_path = os.path.join(pdir, 'data.json')
@@ -1063,7 +1110,7 @@ def on_clear_project_uploads(data):
     if request.sid not in connected_users: return
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
-    name = data.get('project', ACTIVE_PROJECT)
+    name = _resolve_project_name(data.get('project', ACTIVE_PROJECT)) or ACTIVE_PROJECT
     uploads_path = os.path.join(PROJECTS_DIR, name, 'uploads')
     if not os.path.exists(os.path.join(PROJECTS_DIR, name)):
         emit('error', {'message': 'Project niet gevonden'}); return
@@ -1077,7 +1124,7 @@ def on_clear_project_all(data):
     if request.sid not in connected_users: return
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
-    name = data.get('project', ACTIVE_PROJECT)
+    name = _resolve_project_name(data.get('project', ACTIVE_PROJECT)) or ACTIVE_PROJECT
     pdir = os.path.join(PROJECTS_DIR, name)
     if not os.path.exists(pdir): emit('error', {'message': 'Project niet gevonden'}); return
     # Clear chat
