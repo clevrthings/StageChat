@@ -579,17 +579,18 @@ def _handle_mux_connection(client_sock, https_target_port: int, public_https_por
                 pass
 
 
-def _serve_http_https_mux(listen_host: str, public_port: int, https_target_port: int):
+def _serve_http_https_mux(listen_host: str, listen_port: int, https_target_port: int, public_https_port: int = None):
+    advertised_https_port = public_https_port if public_https_port is not None else listen_port
     srv = socket_lib.socket(socket_lib.AF_INET, socket_lib.SOCK_STREAM)
     srv.setsockopt(socket_lib.SOL_SOCKET, socket_lib.SO_REUSEADDR, 1)
-    srv.bind((listen_host, public_port))
+    srv.bind((listen_host, listen_port))
     srv.listen(128)
-    print(f'[mux] HTTP->HTTPS redirect + TLS passthrough op poort {public_port}')
+    print(f'[mux] HTTP->HTTPS redirect + TLS passthrough op poort {listen_port} (HTTPS publiek: {advertised_https_port})')
     while True:
         client_sock, _ = srv.accept()
         t = threading.Thread(
             target=_handle_mux_connection,
-            args=(client_sock, https_target_port, public_port),
+            args=(client_sock, https_target_port, advertised_https_port),
             daemon=True,
         )
         t.start()
@@ -1209,14 +1210,25 @@ def on_call_ice(data): emit('call_ice', {'from': request.sid, 'candidate': data.
 if __name__ == '__main__':
     generate_ssl_cert()
     PUBLIC_PORT = _coerce_port(APP_CONFIG.get('port', 80))
-    HTTPS_BACKEND_PORT = PUBLIC_PORT + 1 if PUBLIC_PORT < 65535 else 65534
-    if HTTPS_BACKEND_PORT == PUBLIC_PORT:
-        HTTPS_BACKEND_PORT = 5443
-    mux_thread = threading.Thread(
-        target=_serve_http_https_mux,
-        args=('0.0.0.0', PUBLIC_PORT, HTTPS_BACKEND_PORT),
-        daemon=True,
-    )
-    mux_thread.start()
+    if PUBLIC_PORT == 80:
+        # Support both https://host (443) and legacy https://host:80.
+        HTTPS_BACKEND_PORT = 8443
+        mux_bindings = [
+            (80, 443),
+            (443, 443),
+        ]
+    else:
+        HTTPS_BACKEND_PORT = PUBLIC_PORT + 1 if PUBLIC_PORT < 65535 else 65534
+        if HTTPS_BACKEND_PORT == PUBLIC_PORT:
+            HTTPS_BACKEND_PORT = 5443
+        mux_bindings = [(PUBLIC_PORT, PUBLIC_PORT)]
+
+    for listen_port, public_https_port in mux_bindings:
+        mux_thread = threading.Thread(
+            target=_serve_http_https_mux,
+            args=('0.0.0.0', listen_port, HTTPS_BACKEND_PORT, public_https_port),
+            daemon=True,
+        )
+        mux_thread.start()
     socketio.run(app, host='127.0.0.1', port=HTTPS_BACKEND_PORT, debug=False,
                  allow_unsafe_werkzeug=True, ssl_context=(CERT_FILE, KEY_FILE))
