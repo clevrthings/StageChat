@@ -35,7 +35,7 @@ CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')
 KEY_FILE      = os.path.join(BASE_DIR, 'key.pem')
 MAX_HISTORY   = 200
-APP_VERSION   = '0.1.1'
+APP_VERSION   = '0.2.0'
 
 DEFAULT_CHANNELS = ['algemeen', 'foh', 'podium', 'licht']
 
@@ -638,8 +638,22 @@ def upload_file():
     if size > max_mb * 1024 * 1024: return {'error': f'Bestand te groot (max {max_mb} MB)'}, 400
     filename    = secure_filename(file.filename)
     unique_name = f'{int(time.time() * 1000)}_{filename}'
-    file.save(os.path.join(UPLOADS_DIR, unique_name))
+    try:
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+        file.save(os.path.join(UPLOADS_DIR, unique_name))
+    except OSError as e:
+        print(f'[upload] Opslaan mislukt: {e}')
+        return {'error': 'Server kan bestand niet opslaan'}, 500
+    except Exception as e:
+        print(f'[upload] Onverwachte fout: {e}')
+        return {'error': 'Onverwachte serverfout bij upload'}, 500
     return {'url': f'/uploads/{unique_name}', 'filename': filename, 'size': size}
+
+
+@app.errorhandler(413)
+def handle_request_entity_too_large(e):
+    max_mb = PROJECT_CONFIG.get('max_file_size_mb', 50)
+    return {'error': f'Bestand te groot (max {max_mb} MB)'}, 413
 
 
 @app.route('/uploads/<path:filename>')

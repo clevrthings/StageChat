@@ -12,7 +12,7 @@ What it does:
 - creates a Python virtual environment and installs dependencies
 - asks for main config values (`port`, `username_case_sensitive`) with defaults
 - creates and enables a `systemd` service so StageChat restarts automatically
-- installs the `stagechat` command in `/usr/local/bin`
+- installs the `stagechat` command in `/usr/local/bin` (incl. update command)
 
 Defaults:
 
@@ -25,6 +25,7 @@ Service commands:
 stagechat start
 stagechat stop
 stagechat restart
+stagechat update
 stagechat
 ```
 

@@ -18,6 +18,7 @@ The installer will:
   - `stagechat start`
   - `stagechat stop`
   - `stagechat restart`
+  - `stagechat update`
   - `stagechat` (help)
 
 Default install values:

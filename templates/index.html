@@ -2431,16 +2431,26 @@
   }
 
   // ── File upload ──
-  document.getElementById('file-input').addEventListener('change', e => {
+  document.getElementById('file-input').addEventListener('change', async e => {
     const file = e.target.files[0]; if (!file) return; e.target.value = '';
     const fd = new FormData(); fd.append('file', file); fd.append('token', authToken);
-    fetch('/upload', { method: 'POST', body: fd })
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) { alert('Upload mislukt: ' + d.error); return; }
-        socket.emit('send_file_message', { channel: currentChannel, filename: d.filename, url: d.url, size: d.size });
-      })
-      .catch(err => alert('Upload mislukt: ' + err.message));
+    try {
+      const r = await fetch('/upload', { method: 'POST', body: fd });
+      const raw = await r.text();
+      let d = null;
+      try { d = raw ? JSON.parse(raw) : null; } catch (_) {}
+      if (!r.ok) {
+        const isHtml = raw.trim().startsWith('<');
+        const fallback = isHtml
+          ? `HTTP ${r.status} ${r.statusText} (server gaf HTML terug i.p.v. JSON)`
+          : `HTTP ${r.status} ${r.statusText}`;
+        throw new Error((d && d.error) ? d.error : fallback);
+      }
+      if (!d || d.error) throw new Error((d && d.error) ? d.error : 'Ongeldige uploadresponse');
+      socket.emit('send_file_message', { channel: currentChannel, filename: d.filename, url: d.url, size: d.size });
+    } catch (err) {
+      alert('Upload mislukt: ' + (err && err.message ? err.message : String(err)));
+    }
   });
 
   function renderFileCard(msg) {

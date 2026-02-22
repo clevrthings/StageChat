@@ -17,8 +17,9 @@ CLI_BIN="/usr/local/bin/stagechat"
 DEFAULT_SERVICE_USER="stagechat"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
-INSTALLER_VERSION="2026-02-22-6"
-STAGECHAT_VERSION="0.1.1"
+INSTALL_ACTION="install"
+INSTALLER_VERSION="2026-02-22-7"
+STAGECHAT_VERSION="0.2.0"
 
 
 log() {
@@ -38,6 +39,28 @@ require_root() {
 
 have_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+parse_args() {
+  INSTALL_ACTION="install"
+  for arg in "$@"; do
+    case "${arg}" in
+      --update)
+        INSTALL_ACTION="update"
+        ;;
+      --help|-h)
+        cat <<'USAGE'
+Usage: install.sh [--update]
+
+Options:
+  --update    Non-interactive update of existing StageChat install.
+USAGE
+        exit 0
+        ;;
+      *)
+        ;;
+    esac
+  done
 }
 
 refresh_installer_if_needed() {
@@ -230,6 +253,29 @@ choose_service_user() {
   done
 }
 
+ensure_service_user_exists() {
+  local service_user="$1"
+  if id -u "${service_user}" >/dev/null 2>&1; then
+    return
+  fi
+  log "Service user '${service_user}' does not exist. Creating system user."
+  useradd --system --create-home --home-dir "/var/lib/${SERVICE_NAME}" --shell "$(resolve_nologin_shell)" "${service_user}"
+}
+
+detect_existing_service_user() {
+  local service_user=""
+  if have_cmd systemctl; then
+    service_user="$(systemctl show -p User --value "${SERVICE_NAME}.service" 2>/dev/null | tr -d '[:space:]' || true)"
+  fi
+  if [ -z "${service_user}" ] && [ -f "${SYSTEMD_UNIT}" ]; then
+    service_user="$(awk -F= '/^User=/{print $2; exit}' "${SYSTEMD_UNIT}" | tr -d '[:space:]')"
+  fi
+  if [ -z "${service_user}" ]; then
+    service_user="${DEFAULT_SERVICE_USER}"
+  fi
+  printf '%s\n' "${service_user}"
+}
+
 read_existing_config_defaults() {
   local file="$1"
   python3 - "$file" <<'PY'
@@ -377,6 +423,7 @@ write_cli_wrapper() {
 set -euo pipefail
 
 SERVICE_NAME="stagechat.service"
+INSTALL_SCRIPT="/opt/stagechat/install.sh"
 
 run_systemctl() {
   if [ "$(id -u)" -eq 0 ]; then
@@ -400,6 +447,13 @@ case "${cmd}" in
   status)
     run_systemctl status
     ;;
+  update)
+    if [ "$(id -u)" -eq 0 ]; then
+      exec bash "${INSTALL_SCRIPT}" --update
+    else
+      exec sudo bash "${INSTALL_SCRIPT}" --update
+    fi
+    ;;
   ""|help|-h|--help)
     cat <<'USAGE'
 Usage: stagechat <command>
@@ -409,6 +463,7 @@ Commands:
   stop       Stop StageChat service
   restart    Restart StageChat service
   status     Show StageChat service status
+  update     Pull latest code and restart (keeps settings)
 USAGE
     ;;
   *)
@@ -433,12 +488,54 @@ enable_and_start_service() {
   fi
 }
 
+run_update_action() {
+  if [ ! -d "${INSTALL_DIR}/.git" ]; then
+    die "No existing StageChat installation found in ${INSTALL_DIR}. Run installer without --update first."
+  fi
+
+  local backup_config=""
+  backup_config="$(mktemp)"
+  if [ -f "${INSTALL_DIR}/config.json" ]; then
+    cp "${INSTALL_DIR}/config.json" "${backup_config}"
+  else
+    write_config_file "${backup_config}" "default" "80" "false"
+  fi
+
+  local service_user
+  service_user="$(detect_existing_service_user)"
+  ensure_service_user_exists "${service_user}"
+
+  ensure_packages
+  update_repo
+  chown -R "${service_user}:${service_user}" "${INSTALL_DIR}"
+  setup_python_env
+  cp "${backup_config}" "${INSTALL_DIR}/config.json"
+  chown "${service_user}:${service_user}" "${INSTALL_DIR}/config.json"
+
+  write_systemd_service "${service_user}"
+  write_cli_wrapper
+  enable_and_start_service
+
+  rm -f "${backup_config}" || true
+  cleanup_installer_cache
+  log "Update complete."
+  log "Service: ${SERVICE_NAME}.service (running + enabled)"
+  log "Settings preserved from existing config.json."
+  log "StageChat version used: ${STAGECHAT_VERSION}"
+  log "Installer version used: ${INSTALLER_VERSION}"
+}
+
 main() {
   require_root
+  parse_args "$@"
   refresh_installer_if_needed "$@"
   log "Installer version: ${INSTALLER_VERSION}"
   log "StageChat version: ${STAGECHAT_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
+  if [ "${INSTALL_ACTION}" = "update" ]; then
+    run_update_action
+    return
+  fi
   if [ ! -r "${INTERACTIVE_INPUT}" ]; then
     log "Geen interactieve terminal gedetecteerd; standaardwaarden worden gebruikt."
   fi
@@ -532,7 +629,7 @@ PY
 
   log "Installation complete."
   log "Service: ${SERVICE_NAME}.service (running + enabled)"
-  log "CLI commands: stagechat start | stagechat stop | stagechat restart"
+  log "CLI commands: stagechat start | stagechat stop | stagechat restart | stagechat update"
   log "Reachable via IP:"
   log "  ${http_url}  (auto-redirect to HTTPS)"
   log "  ${https_url}"
