@@ -64,9 +64,9 @@ menu_select() {
   fi
 
   if ! is_menu_tty; then
-    printf '%s\n' "${title}"
+    printf '%s\n' "${title}" >&2
     for n in "${!options[@]}"; do
-      printf '  %d) %s\n' "$((n + 1))" "${options[$n]}"
+      printf '  %d) %s\n' "$((n + 1))" "${options[$n]}" >&2
     done
     while true; do
       read -r -p "Select [1-${count}]: " key < /dev/tty || true
@@ -79,12 +79,12 @@ menu_select() {
 
   lines=$((count + 1))
   while true; do
-    printf '%b%s%b\n' "${COLOR_BOLD}${COLOR_BLUE}" "${title}" "${COLOR_RESET}"
+    printf '%b%s%b\n' "${COLOR_BOLD}${COLOR_BLUE}" "${title}" "${COLOR_RESET}" > /dev/tty
     for n in "${!options[@]}"; do
       if [ "${n}" -eq "${idx}" ]; then
-        printf '  %b> %s%b\n' "${COLOR_BOLD}${COLOR_GREEN}" "${options[$n]}" "${COLOR_RESET}"
+        printf '  %b> %s%b\n' "${COLOR_BOLD}${COLOR_GREEN}" "${options[$n]}" "${COLOR_RESET}" > /dev/tty
       else
-        printf '    %s\n' "${options[$n]}"
+        printf '    %s\n' "${options[$n]}" > /dev/tty
       fi
     done
 
@@ -106,7 +106,7 @@ menu_select() {
       return
     fi
 
-    printf '\033[%dA\033[J' "${lines}"
+    printf '\033[%dA\033[J' "${lines}" > /dev/tty
   done
 }
 
