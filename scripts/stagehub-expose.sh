@@ -48,7 +48,7 @@ require_root() {
 }
 
 is_menu_tty() {
-  [ -t 1 ] && [ -r /dev/tty ]
+  [ -r /dev/tty ]
 }
 
 menu_select() {
