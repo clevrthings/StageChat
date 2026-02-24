@@ -127,8 +127,15 @@ ensure_cloudflared_installed() {
   fi
 
   log "Installing cloudflared..."
-  apt-get update -y
-  if apt-get install -y cloudflared; then
+  if ! apt-get update -y; then
+    if [ -f /etc/apt/sources.list.d/cloudflared.list ]; then
+      log "Removing broken Cloudflare apt source and retrying apt update..."
+      rm -f /etc/apt/sources.list.d/cloudflared.list || true
+      apt-get update -y || true
+    fi
+  fi
+
+  if apt-get install -y cloudflared >/dev/null 2>&1; then
     return
   fi
 
@@ -137,18 +144,72 @@ ensure_cloudflared_installed() {
   curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --dearmor --yes -o /usr/share/keyrings/cloudflare-main.gpg
 
   local codename="bookworm"
+  local repo_codename=""
   if [ -f /etc/os-release ]; then
     # shellcheck disable=SC1091
     source /etc/os-release
     codename="${VERSION_CODENAME:-bookworm}"
   fi
 
+  case "${codename}" in
+    bullseye|bookworm)
+      repo_codename="${codename}"
+      ;;
+    *)
+      # Cloudflare may lag behind Debian codenames (for example trixie), so fallback to bookworm.
+      repo_codename="bookworm"
+      ;;
+  esac
+
   cat > /etc/apt/sources.list.d/cloudflared.list <<EOF
-deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared ${codename} main
+deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared ${repo_codename} main
 EOF
 
-  apt-get update -y
-  apt-get install -y cloudflared
+  if apt-get update -y && apt-get install -y cloudflared; then
+    have_cmd cloudflared || die "cloudflared install failed."
+    return
+  fi
+
+  log "Apt install failed. Falling back to GitHub release package..."
+  rm -f /etc/apt/sources.list.d/cloudflared.list || true
+  apt-get update -y || true
+
+  local arch=""
+  local asset=""
+  local tmp_deb=""
+  if have_cmd dpkg; then
+    arch="$(dpkg --print-architecture 2>/dev/null || true)"
+  fi
+  if [ -z "${arch}" ]; then
+    arch="$(uname -m)"
+  fi
+
+  case "${arch}" in
+    amd64|x86_64)
+      asset="cloudflared-linux-amd64.deb"
+      ;;
+    arm64|aarch64)
+      asset="cloudflared-linux-arm64.deb"
+      ;;
+    armhf|armv7l)
+      asset="cloudflared-linux-armhf.deb"
+      ;;
+    arm|armel)
+      asset="cloudflared-linux-arm.deb"
+      ;;
+    i386|i686)
+      asset="cloudflared-linux-386.deb"
+      ;;
+    *)
+      die "Unsupported architecture for cloudflared auto-install: ${arch}"
+      ;;
+  esac
+
+  tmp_deb="$(mktemp /tmp/cloudflared.XXXXXX.deb)"
+  curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/${asset}" -o "${tmp_deb}"
+  dpkg -i "${tmp_deb}" >/dev/null || apt-get -f install -y
+  rm -f "${tmp_deb}" || true
+
   have_cmd cloudflared || die "cloudflared install failed."
 }
 
