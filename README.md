@@ -70,6 +70,7 @@ stagehub expose cloudflare enable --mode quick
 
 This creates a persistent Cloudflare quick tunnel and exposes StageHub on a `trycloudflare.com` URL.
 If Cloudflare apt repo is unavailable for your Debian release (for example `trixie`), StageHub automatically falls back to GitHub release installation.
+Installer updates also auto-remove an incompatible `cloudflared` apt source if present, so `stagehub update` keeps working.
 
 Check status:
 

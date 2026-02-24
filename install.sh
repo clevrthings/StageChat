@@ -22,8 +22,8 @@ LEGACY_CLI_BIN="/usr/local/bin/${LEGACY_SERVICE_NAME}"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
 INSTALL_ACTION="install"
-INSTALLER_VERSION="2026-02-23-10"
-STAGEHUB_VERSION="1.2.3"
+INSTALLER_VERSION="2026-02-24-11"
+STAGEHUB_VERSION="1.2.4"
 
 
 log() {
@@ -171,6 +171,29 @@ ensure_packages() {
   if ! have_cmd apt-get; then
     die "This installer currently supports apt-based systems (Raspberry Pi OS / Debian)."
   fi
+
+  # A stale Cloudflare source for unsupported Debian codenames (for example trixie)
+  # can break all apt updates. Expose script will reconfigure/install cloudflared on demand.
+  local cloudflared_list="/etc/apt/sources.list.d/cloudflared.list"
+  local codename=""
+  if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    codename="${VERSION_CODENAME:-}"
+  fi
+  if [ -f "${cloudflared_list}" ]; then
+    case "${codename}" in
+      bullseye|bookworm)
+        ;;
+      *)
+        if grep -q 'pkg.cloudflare.com/cloudflared' "${cloudflared_list}" 2>/dev/null; then
+          log "Removing incompatible Cloudflare apt source (${codename:-unknown}) to keep apt healthy..."
+          rm -f "${cloudflared_list}" || true
+        fi
+        ;;
+    esac
+  fi
+
   log "Installing system dependencies (git, curl, python3, venv)..."
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
