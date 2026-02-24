@@ -15,6 +15,7 @@ The installer will:
 - ask for main config values (`port`, `username_case_sensitive`) with defaults
 - install and enable a `systemd` service so StageHub auto-starts after reboot
 - automatically migrate legacy `/opt/stagechat` installs/data to `/opt/stagehub`
+- when updating an existing install with "keep data/config", reuse current service user and config without asking port/user settings again
 - install CLI commands:
   - `stagehub start`
   - `stagehub stop`

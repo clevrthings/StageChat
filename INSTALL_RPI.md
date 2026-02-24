@@ -14,6 +14,7 @@ What it does:
 - asks for main config values (`port`, `username_case_sensitive`) with defaults
 - creates and enables a `systemd` service so StageHub restarts automatically
 - installs the `stagehub` command in `/usr/local/bin` (incl. update/expose/uninstall commands)
+- when choosing "Update existing installation", reuses current config/service user without re-asking port/user settings
 
 Defaults:
 

@@ -391,16 +391,22 @@ tailscale_clear_routes() {
   local https_port="${1}"
 
   # Explicit off commands first (matches the command Tailscale prints to users).
-  tailscale funnel --https="${https_port}" off >/dev/null 2>&1 || true
-  tailscale serve --https="${https_port}" off >/dev/null 2>&1 || true
+  tailscale funnel --yes --https="${https_port}" off >/dev/null 2>&1 || true
+  tailscale serve --yes --https="${https_port}" off >/dev/null 2>&1 || true
 
   # Older CLIs may use positional syntax.
-  tailscale funnel "${https_port}" off >/dev/null 2>&1 || true
-  tailscale serve "${https_port}" off >/dev/null 2>&1 || true
+  tailscale funnel --yes "${https_port}" off >/dev/null 2>&1 || true
+  tailscale serve --yes "${https_port}" off >/dev/null 2>&1 || true
 
   # Safety net for any leftover mappings.
-  tailscale funnel reset >/dev/null 2>&1 || true
-  tailscale serve reset >/dev/null 2>&1 || true
+  tailscale funnel reset --yes >/dev/null 2>&1 \
+    || tailscale funnel --yes reset >/dev/null 2>&1 \
+    || tailscale funnel reset >/dev/null 2>&1 \
+    || true
+  tailscale serve reset --yes >/dev/null 2>&1 \
+    || tailscale serve --yes reset >/dev/null 2>&1 \
+    || tailscale serve reset >/dev/null 2>&1 \
+    || true
 }
 
 tailscale_enable() {
@@ -423,23 +429,23 @@ tailscale_enable() {
   tailscale_clear_routes "${https_port}"
 
   if [ "${mode}" = "public" ]; then
-    # Configure proxy on a stable public https port and then turn funnel on.
-    if ! tailscale serve --https="${https_port}" "${target}" >/dev/null 2>&1; then
-      tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
-        || tailscale serve --bg "${target}" >/dev/null 2>&1 \
-        || die "tailscale serve failed."
-    fi
-    tailscale funnel --https="${https_port}" on >/dev/null 2>&1 \
-      || tailscale funnel "${https_port}" on >/dev/null 2>&1 \
-      || tailscale funnel on >/dev/null 2>&1 \
-      || tailscale funnel --bg --https="${https_port}" on >/dev/null 2>&1 \
-      || tailscale funnel --bg "${https_port}" on >/dev/null 2>&1 \
-      || tailscale funnel --bg on >/dev/null 2>&1 \
+    # Newer CLIs use "tailscale funnel <target>"; older CLIs may still use serve+funnel on.
+    tailscale funnel --yes --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
+      || tailscale funnel --yes --bg "${target}" >/dev/null 2>&1 \
+      || tailscale serve --yes --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
+      || tailscale serve --yes --bg "${target}" >/dev/null 2>&1 \
+      || tailscale funnel --yes --https="${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel --yes "${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel --yes on >/dev/null 2>&1 \
+      || tailscale funnel --yes --bg --https="${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel --yes --bg "${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel --yes --bg on >/dev/null 2>&1 \
       || die "tailscale funnel enable failed."
   else
-    tailscale serve --https="${https_port}" "${target}" >/dev/null 2>&1 \
-      || tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
-      || tailscale serve --bg "${target}" >/dev/null 2>&1 \
+    tailscale serve --yes --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
+      || tailscale serve --yes --bg "${target}" >/dev/null 2>&1 \
+      || tailscale serve --yes --https="${https_port}" "${target}" >/dev/null 2>&1 \
+      || tailscale serve --yes "${target}" >/dev/null 2>&1 \
       || die "tailscale serve enable failed."
   fi
 

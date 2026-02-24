@@ -22,8 +22,8 @@ LEGACY_CLI_BIN="/usr/local/bin/${LEGACY_SERVICE_NAME}"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
 INSTALL_ACTION="install"
-INSTALLER_VERSION="2026-02-24-11"
-STAGEHUB_VERSION="1.2.5"
+INSTALLER_VERSION="2026-02-24-12"
+STAGEHUB_VERSION="1.2.6"
 
 
 log() {
@@ -459,6 +459,23 @@ setup_python_env() {
   "${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 }
 
+finish_with_preserved_settings() {
+  local service_user="$1"
+  local backup_config="$2"
+
+  ensure_service_user_exists "${service_user}"
+  chown -R "${service_user}:${service_user}" "${INSTALL_DIR}"
+  setup_python_env
+  cp "${backup_config}" "${INSTALL_DIR}/config.json"
+  chown "${service_user}:${service_user}" "${INSTALL_DIR}/config.json"
+  ensure_cli_scripts "${service_user}"
+
+  write_systemd_service "${service_user}"
+  write_cli_wrapper
+  enable_and_start_service
+  cleanup_legacy_runtime_artifacts
+}
+
 ensure_cli_scripts() {
   local service_user="$1"
   local expose_script="${INSTALL_DIR}/scripts/stagehub-expose.sh"
@@ -607,20 +624,9 @@ run_update_action() {
 
   local service_user
   service_user="$(detect_existing_service_user)"
-  ensure_service_user_exists "${service_user}"
-
   ensure_packages
   update_repo
-  chown -R "${service_user}:${service_user}" "${INSTALL_DIR}"
-  setup_python_env
-  cp "${backup_config}" "${INSTALL_DIR}/config.json"
-  chown "${service_user}:${service_user}" "${INSTALL_DIR}/config.json"
-  ensure_cli_scripts "${service_user}"
-
-  write_systemd_service "${service_user}"
-  write_cli_wrapper
-  enable_and_start_service
-  cleanup_legacy_runtime_artifacts
+  finish_with_preserved_settings "${service_user}" "${backup_config}"
 
   rm -f "${backup_config}" || true
   cleanup_installer_cache
@@ -659,6 +665,20 @@ main() {
   fi
 
   choose_install_mode
+
+  if [ "${INSTALL_MODE}" = "update" ]; then
+    local service_user
+    service_user="$(detect_existing_service_user)"
+    finish_with_preserved_settings "${service_user}" "${backup_config}"
+
+    log "Update complete."
+    log "Service: ${SERVICE_NAME}.service (running + enabled)"
+    log "Settings preserved from existing config.json."
+    cleanup_installer_cache
+    log "StageHub version used: ${STAGEHUB_VERSION}"
+    log "Installer version used: ${INSTALLER_VERSION}"
+    return
+  fi
 
   if [ "${INSTALL_MODE}" = "clean" ]; then
     write_config_file "${backup_config}" "default" "80" "false"
