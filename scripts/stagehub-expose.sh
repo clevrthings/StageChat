@@ -424,15 +424,21 @@ tailscale_enable() {
 
   if [ "${mode}" = "public" ]; then
     # Configure proxy on a stable public https port and then turn funnel on.
-    if ! tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1; then
-      tailscale serve --bg "${target}" >/dev/null 2>&1 || die "tailscale serve failed."
+    if ! tailscale serve --https="${https_port}" "${target}" >/dev/null 2>&1; then
+      tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
+        || tailscale serve --bg "${target}" >/dev/null 2>&1 \
+        || die "tailscale serve failed."
     fi
-    tailscale funnel --bg --https="${https_port}" on >/dev/null 2>&1 \
+    tailscale funnel --https="${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel "${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel on >/dev/null 2>&1 \
+      || tailscale funnel --bg --https="${https_port}" on >/dev/null 2>&1 \
       || tailscale funnel --bg "${https_port}" on >/dev/null 2>&1 \
       || tailscale funnel --bg on >/dev/null 2>&1 \
       || die "tailscale funnel enable failed."
   else
-    tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
+    tailscale serve --https="${https_port}" "${target}" >/dev/null 2>&1 \
+      || tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
       || tailscale serve --bg "${target}" >/dev/null 2>&1 \
       || die "tailscale serve enable failed."
   fi
