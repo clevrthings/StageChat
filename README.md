@@ -74,6 +74,7 @@ stagehub expose cloudflare enable --mode quick
 This creates a persistent Cloudflare quick tunnel and exposes StageHub on a `trycloudflare.com` URL.
 If Cloudflare apt repo is unavailable for your Debian release (for example `trixie`), StageHub automatically falls back to GitHub release installation.
 Installer updates also auto-remove an incompatible `cloudflared` apt source if present, so `stagehub update` keeps working.
+StageHub now resolves the quick URL from the latest service start to avoid stale links.
 
 Check status:
 
@@ -140,6 +141,7 @@ stagehub expose tailscale enable --mode public --local-port 8443
 ```
 
 StageHub configures Tailscale Funnel on public HTTPS port `443` and proxies to your chosen local backend port.
+After enable, StageHub prints the detected Tailscale URL (`https://<device>.ts.net`).
 
 Status and routes:
 

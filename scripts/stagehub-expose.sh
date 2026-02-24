@@ -319,15 +319,57 @@ EOF
 }
 
 cloudflare_quick_url() {
+  local since_epoch="${1:-}"
   if ! have_cmd journalctl; then
     return
   fi
-  journalctl -u "${CF_QUICK_SERVICE_NAME}" -n 120 --no-pager 2>/dev/null \
+  if [ -n "${since_epoch}" ]; then
+    journalctl -u "${CF_QUICK_SERVICE_NAME}" --since "@${since_epoch}" -n 200 --no-pager 2>/dev/null \
+      | sed -n 's#.*\(https://[a-z0-9-]\+\.trycloudflare\.com\).*#\1#p' \
+      | tail -n1
+    return
+  fi
+  journalctl -u "${CF_QUICK_SERVICE_NAME}" -n 200 --no-pager 2>/dev/null \
     | sed -n 's#.*\(https://[a-z0-9-]\+\.trycloudflare\.com\).*#\1#p' \
     | tail -n1
 }
 
+cloudflare_quick_url_wait() {
+  local since_epoch="$1"
+  local url=""
+  local i=0
+  while [ "${i}" -lt 25 ]; do
+    url="$(cloudflare_quick_url "${since_epoch}" || true)"
+    if [ -n "${url}" ]; then
+      printf '%s\n' "${url}"
+      return
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+}
+
+cloudflare_quick_url_reachable() {
+  local url="$1"
+  if [ -z "${url}" ] || ! have_cmd curl; then
+    return 0
+  fi
+  local code=""
+  code="$(curl -k -L -s -o /dev/null -w '%{http_code}' --max-time 8 "${url}" 2>/dev/null || true)"
+  case "${code}" in
+    2*|3*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 cloudflare_enable_quick() {
+  local started_epoch=""
+  started_epoch="$(date +%s)"
+
   ensure_stagehub_running
   ensure_cloudflared_installed
 
@@ -342,14 +384,16 @@ cloudflare_enable_quick() {
   CF_MODE="quick"
   save_state
 
-  sleep 2
   local url=""
-  url="$(cloudflare_quick_url || true)"
+  url="$(cloudflare_quick_url_wait "${started_epoch}" || true)"
   log "Cloudflare quick tunnel enabled."
   if [ -n "${url}" ]; then
     log "Public URL: ${url}"
+    if ! cloudflare_quick_url_reachable "${url}"; then
+      log "URL is published but may not be ready yet. Wait ~10s and retry, or run: stagehub expose cloudflare status"
+    fi
   else
-    log "Quick URL not parsed yet. Check logs: journalctl -u ${CF_QUICK_SERVICE_NAME} -n 100 --no-pager"
+    log "Quick URL not parsed yet. Check logs: journalctl -u ${CF_QUICK_SERVICE_NAME} -n 200 --no-pager"
   fi
 }
 
@@ -471,6 +515,25 @@ tailscale_target_from_port() {
   fi
 }
 
+tailscale_dns_name() {
+  if ! have_cmd tailscale; then
+    return
+  fi
+  if ! have_cmd python3; then
+    return
+  fi
+  tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    payload = {}
+name = ((payload.get("Self") or {}).get("DNSName") or "").strip().rstrip(".")
+if name:
+    print(name)
+' 2>/dev/null
+}
+
 tailscale_clear_routes() {
   local https_port="${1}"
 
@@ -538,6 +601,15 @@ tailscale_enable() {
   save_state
 
   log "Tailscale enabled (mode: ${mode}, target: ${target})."
+  local dns_name=""
+  dns_name="$(tailscale_dns_name || true)"
+  if [ -n "${dns_name}" ]; then
+    if [ "${mode}" = "public" ]; then
+      log "Public URL: https://${dns_name}"
+    else
+      log "Tailnet URL: https://${dns_name}"
+    fi
+  fi
   if [ "${mode}" = "public" ]; then
     log "Public endpoint uses HTTPS port ${https_port}. If link fails, verify Funnel policy and run: tailscale funnel status"
   fi
