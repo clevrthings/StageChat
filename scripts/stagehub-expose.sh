@@ -318,9 +318,23 @@ WantedBy=multi-user.target
 EOF
 }
 
+cloudflare_quick_pid() {
+  if ! have_cmd systemctl; then
+    return
+  fi
+  systemctl show -p MainPID --value "${CF_QUICK_SERVICE_NAME}" 2>/dev/null | tr -d '[:space:]'
+}
+
 cloudflare_quick_url() {
-  local since_epoch="${1:-}"
+  local pid="${1:-}"
+  local since_epoch="${2:-}"
   if ! have_cmd journalctl; then
+    return
+  fi
+  if [[ "${pid}" =~ ^[0-9]+$ ]] && [ "${pid}" -gt 1 ]; then
+    journalctl _PID="${pid}" -n 200 --no-pager 2>/dev/null \
+      | sed -n 's#.*\(https://[a-z0-9-]\+\.trycloudflare\.com\).*#\1#p' \
+      | tail -n1
     return
   fi
   if [ -n "${since_epoch}" ]; then
@@ -335,11 +349,12 @@ cloudflare_quick_url() {
 }
 
 cloudflare_quick_url_wait() {
-  local since_epoch="$1"
+  local pid="${1:-}"
+  local since_epoch="${2:-}"
   local url=""
   local i=0
   while [ "${i}" -lt 25 ]; do
-    url="$(cloudflare_quick_url "${since_epoch}" || true)"
+    url="$(cloudflare_quick_url "${pid}" "${since_epoch}" || true)"
     if [ -n "${url}" ]; then
       printf '%s\n' "${url}"
       return
@@ -368,6 +383,7 @@ cloudflare_quick_url_reachable() {
 
 cloudflare_enable_quick() {
   local started_epoch=""
+  local quick_pid=""
   started_epoch="$(date +%s)"
 
   ensure_stagehub_running
@@ -385,7 +401,8 @@ cloudflare_enable_quick() {
   save_state
 
   local url=""
-  url="$(cloudflare_quick_url_wait "${started_epoch}" || true)"
+  quick_pid="$(cloudflare_quick_pid || true)"
+  url="$(cloudflare_quick_url_wait "${quick_pid}" "${started_epoch}" || true)"
   log "Cloudflare quick tunnel enabled."
   if [ -n "${url}" ]; then
     log "Public URL: ${url}"
@@ -480,8 +497,10 @@ cloudflare_status() {
   fi
   printf 'Cloudflare: %s (mode: %s, detail: %s)\n' "${state}" "${CF_MODE:-none}" "${detail}"
   if [ "${detail}" = "quick-tunnel" ]; then
+    local quick_pid=""
     local url=""
-    url="$(cloudflare_quick_url || true)"
+    quick_pid="$(cloudflare_quick_pid || true)"
+    url="$(cloudflare_quick_url "${quick_pid}" "" || true)"
     if [ -n "${url}" ]; then
       printf '  URL: %s\n' "${url}"
     fi
